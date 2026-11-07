@@ -9,6 +9,7 @@ import {
 	clipStat,
 	clipText,
 	DEFAULT_MESSAGE_FORMAT,
+	diffBase,
 	expandDir,
 	FORMAT_PLACEHOLDER,
 	invalidMessage,
@@ -22,41 +23,66 @@ import {
 
 describe("parseArgs", () => {
 	test("no arguments", () => {
-		expect(parseArgs("")).toEqual({ staged: false });
-		expect(parseArgs("   ")).toEqual({ staged: false });
+		expect(parseArgs("")).toEqual({ staged: false, amend: false });
+		expect(parseArgs("   ")).toEqual({ staged: false, amend: false });
 	});
 
 	test("staged alone", () => {
-		expect(parseArgs("staged")).toEqual({ staged: true });
+		expect(parseArgs("staged")).toEqual({ staged: true, amend: false });
+	});
+
+	test("amend alone", () => {
+		expect(parseArgs("amend")).toEqual({ staged: false, amend: true });
 	});
 
 	test("dir alone", () => {
-		expect(parseArgs("~/code/repo")).toEqual({ staged: false, dir: "~/code/repo" });
+		expect(parseArgs("~/code/repo")).toEqual({ staged: false, amend: false, dir: "~/code/repo" });
 	});
 
-	test("both orders", () => {
-		expect(parseArgs("staged ~/code/repo")).toEqual({ staged: true, dir: "~/code/repo" });
-		expect(parseArgs("~/code/repo staged")).toEqual({ staged: true, dir: "~/code/repo" });
+	test("both flags, either order, with a dir", () => {
+		expect(parseArgs("staged amend ~/code/repo")).toEqual({ staged: true, amend: true, dir: "~/code/repo" });
+		expect(parseArgs("amend ~/code/repo staged")).toEqual({ staged: true, amend: true, dir: "~/code/repo" });
+		 expect(parseArgs("~/code/repo amend")).toEqual({ staged: false, amend: true, dir: "~/code/repo" });
 	});
 
 	test("quoted dir keeps its spaces", () => {
-		expect(parseArgs('staged "/tmp/my repo"')).toEqual({ staged: true, dir: "/tmp/my repo" });
-		expect(parseArgs("'/tmp/my repo'")).toEqual({ staged: false, dir: "/tmp/my repo" });
+		expect(parseArgs('staged "/tmp/my repo"')).toEqual({ staged: true, amend: false, dir: "/tmp/my repo" });
+		expect(parseArgs("'/tmp/my repo'")).toEqual({ staged: false, amend: false, dir: "/tmp/my repo" });
 	});
 
-	test("repeated staged is harmless", () => {
-		expect(parseArgs("staged staged")).toEqual({ staged: true });
+	test("repeated keywords are harmless", () => {
+		expect(parseArgs("staged staged")).toEqual({ staged: true, amend: false });
+		expect(parseArgs("amend amend")).toEqual({ staged: false, amend: true });
 	});
 
 	test("two leftover tokens is a usage error", () => {
-		const parsed = parseArgs("staged foo bar");
+		const parsed = parseArgs("staged amend foo bar");
 		expect("error" in parsed).toBe(true);
-		if ("error" in parsed) expect(parsed.error).toContain("usage: /commit [staged] [dir]");
+		if ("error" in parsed) expect(parsed.error).toContain("usage: /commit [staged] [amend] [dir]");
 	});
 
-	test("staged is matched exactly, not as a prefix", () => {
-		expect(parseArgs("stagedness")).toEqual({ staged: false, dir: "stagedness" });
-		expect(parseArgs("STAGED")).toEqual({ staged: false, dir: "STAGED" });
+	test("keywords are matched exactly, not as prefixes", () => {
+		expect(parseArgs("stagedness")).toEqual({ staged: false, amend: false, dir: "stagedness" });
+		expect(parseArgs("amended")).toEqual({ staged: false, amend: false, dir: "amended" });
+		expect(parseArgs("STAGED")).toEqual({ staged: false, amend: false, dir: "STAGED" });
+	});
+});
+
+describe("diffBase", () => {
+	const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+	test("a normal commit diffs the index against HEAD", () => {
+		expect(diffBase(false, true, emptyTree)).toBeUndefined();
+		expect(diffBase(false, false, emptyTree)).toBeUndefined();
+	});
+
+	test("an amend diffs against the amended commit's parent", () => {
+		expect(diffBase(true, true, emptyTree)).toBe("HEAD^");
+	});
+
+	test("an amended root commit diffs against whatever empty tree git reported", () => {
+		expect(diffBase(true, false, emptyTree)).toBe(emptyTree);
+		expect(diffBase(true, false, "different-hash-for-sha256-repos")).toBe("different-hash-for-sha256-repos");
 	});
 });
 
@@ -244,13 +270,19 @@ describe("prompts", () => {
 
 describe("buildReport", () => {
 	test("carries hash, stat and the do-not-recommit line", () => {
-		const report = buildReport("abc1234 feat: x", "abc1234 feat: x\n f | 1 +", " in /repo");
+		const report = buildReport("abc1234 feat: x", "abc1234 feat: x\n f | 1 +", " in /repo", false);
 		expect(report).toContain("/commit committed in /repo: abc1234 feat: x");
 		expect(report).toContain("f | 1 +");
 		expect(report).toContain("do not commit those changes again");
 	});
 
+	test("says amended when the commit was rewritten", () => {
+		const report = buildReport("abc1234 feat: x", "", "", true);
+		expect(report).toContain("/commit amended: abc1234 feat: x");
+		expect(report).toContain("now amended");
+	});
+
 	test("drops an empty stat section", () => {
-		expect(buildReport("abc1234 feat: x", "", "").split("\n\n")).toHaveLength(2);
+		expect(buildReport("abc1234 feat: x", "", "", false).split("\n\n")).toHaveLength(2);
 	});
 });

@@ -5,8 +5,10 @@
  * diff plus the session transcript, commits immediately, and reports the result back
  * into the session so the working agent knows the tree is clean.
  *
- * Usage: /commit [staged] [dir]   — both optional, any order.
+ * Usage: /commit [staged] [amend] [dir]   — all optional, any order.
  *   staged  commit only what is already staged
+ *   amend   rewrite the last commit instead of adding one; the message describes the whole
+ *           amended commit (diffed against its parent), and an empty index means message-only
  *   dir     repository to commit, default the session cwd
  *
  * Config, both under <cwd>/.pi/ (never the target repo's):
@@ -27,6 +29,7 @@ import {
 	buildSystemPrompt,
 	type Config,
 	clipText,
+	diffBase,
 	expandDir,
 	gitFailure,
 	LIMITS,
@@ -206,6 +209,25 @@ async function runCommit(pi: ExtensionAPI, ctx: ExtensionCommandContext, rawArgs
 	const root = await resolveRepoRoot(pi, ctx, parsed.dir);
 	if (!root) return;
 
+	const parent = await pi.exec("git", ["rev-parse", "--verify", "--quiet", "HEAD^"], { cwd: root, timeout: 15_000 });
+	const hasParent = parent.code === 0 && parent.stdout.trim().length > 0;
+
+	// Only a root commit needs it, and only the repository knows its object format (sha1 vs sha256).
+	let emptyTree = "";
+	if (parsed.amend && !hasParent) {
+		const hash = await pi.exec("git", ["hash-object", "-t", "tree", "/dev/null"], { cwd: root, timeout: 15_000 });
+		emptyTree = hash.stdout.trim();
+		if (!emptyTree) {
+			ctx.ui.notify("cannot resolve the empty tree of this repository", "error");
+			return;
+		}
+	}
+
+	const base = diffBase(parsed.amend, hasParent, emptyTree);
+	const baseArgs = base ? [base] : [];
+	const statArgs = ["diff", "--cached", "--stat", ...baseArgs];
+	const diffArgs = ["diff", "--cached", ...baseArgs];
+
 	if (!parsed.staged) {
 		const added = await pi.exec("git", ["add", "-A"], { cwd: root, timeout: 120_000 });
 		if (added.code !== 0) {
@@ -214,19 +236,20 @@ async function runCommit(pi: ExtensionAPI, ctx: ExtensionCommandContext, rawArgs
 		}
 	}
 
-	const stat = await pi.exec("git", ["diff", "--cached", "--stat"], { cwd: root, timeout: 120_000 });
+	const stat = await pi.exec("git", statArgs, { cwd: root, timeout: 120_000 });
 	if (stat.code !== 0) {
 		ctx.ui.notify(`git diff failed: ${gitFailure(stat.stderr, stat.stdout, stat.code)}`, "error");
 		return;
 	}
-	if (!stat.stdout.trim()) {
-		ctx.ui.notify(parsed.staged ? `nothing staged in ${root}` : `nothing to commit in ${root}`, "warning");
-		return;
-	}
 
-	const diff = await pi.exec("git", ["diff", "--cached"], { cwd: root, timeout: 120_000 });
+	const diff = await pi.exec("git", diffArgs, { cwd: root, timeout: 120_000 });
 	if (diff.code !== 0) {
 		ctx.ui.notify(`git diff failed: ${gitFailure(diff.stderr, diff.stdout, diff.code)}`, "error");
+		return;
+	}
+	if (!diff.stdout.trim()) {
+		const what = parsed.amend ? "nothing to amend" : parsed.staged ? "nothing staged" : "nothing to commit";
+		ctx.ui.notify(`${what} in ${root}`, "warning");
 		return;
 	}
 
@@ -256,7 +279,8 @@ async function runCommit(pi: ExtensionAPI, ctx: ExtensionCommandContext, rawArgs
 		return;
 	}
 
-	const committed = await pi.exec("git", ["commit", "-m", message], { cwd: root, timeout: 120_000 });
+	const commitArgs = parsed.amend ? ["commit", "--amend", "-m", message] : ["commit", "-m", message];
+	const committed = await pi.exec("git", commitArgs, { cwd: root, timeout: 120_000 });
 	if (committed.code !== 0) {
 		ctx.ui.notify(`git commit failed: ${gitFailure(committed.stderr, committed.stdout, committed.code)}`, "error");
 		return;
@@ -267,12 +291,13 @@ async function runCommit(pi: ExtensionAPI, ctx: ExtensionCommandContext, rawArgs
 	const headLine = head.stdout.trim() || "(commit created)";
 	const where = root === ctx.cwd ? "" : ` in ${root}`;
 
-	ctx.ui.notify(`committed ${headLine}${where}`, "info");
+	const verb = parsed.amend ? "amended" : "committed";
+	ctx.ui.notify(`${verb} ${headLine}${where}`, "info");
 
 	pi.sendMessage(
 		{
 			customType: "git-commit",
-			content: buildReport(headLine, summary.stdout.trim(), where),
+			content: buildReport(headLine, summary.stdout.trim(), where, parsed.amend),
 			display: true,
 		},
 		{ deliverAs: "steer", triggerTurn: false },

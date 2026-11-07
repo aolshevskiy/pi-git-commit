@@ -59,6 +59,7 @@ export function oneLine(text: string, cap: number): string {
 
 export interface ParsedArgs {
 	staged: boolean;
+	amend: boolean;
 	dir?: string;
 }
 
@@ -70,20 +71,36 @@ export function parseArgs(raw: string): ParsedArgs | { error: string } {
 	});
 
 	let staged = false;
+	let amend = false;
 	const rest: string[] = [];
 	for (const word of words) {
 		if (word === "staged") {
 			staged = true;
 			continue;
 		}
+		if (word === "amend") {
+			amend = true;
+			continue;
+		}
 		rest.push(word);
 	}
 
-	if (rest.length === 0) return { staged };
+	if (rest.length === 0) return { staged, amend };
 	if (rest.length > 1) {
-		return { error: `unrecognised arguments (${rest.join(" ")}) — usage: /commit [staged] [dir]` };
+		return { error: `unrecognised arguments (${rest.join(" ")}) — usage: /commit [staged] [amend] [dir]` };
 	}
-	return { staged, dir: rest[0] };
+	return { staged, amend, dir: rest[0] };
+}
+
+/**
+ * What an amended message must describe. After `--amend` the new commit holds the whole index,
+ * so the base is the amended commit's parent — the diff against `HEAD` would describe only the
+ * folded-in delta while the commit contains everything. A root commit has no parent, so the
+ * caller supplies the empty tree it resolved from git. Undefined means "diff against HEAD".
+ */
+export function diffBase(amend: boolean, hasParent: boolean, emptyTree: string): string | undefined {
+	if (!amend) return undefined;
+	return hasParent ? "HEAD^" : emptyTree;
 }
 
 export interface Config {
@@ -210,11 +227,12 @@ export function gitFailure(stderr: string, stdout: string, code: number): string
 }
 
 /** What the agent reads back after a successful commit. */
-export function buildReport(headLine: string, statText: string, where: string): string {
+export function buildReport(headLine: string, statText: string, where: string, amended: boolean): string {
+	const verb = amended ? "amended" : "committed";
 	return [
-		`/commit committed${where}: ${headLine}`,
+		`/commit ${verb}${where}: ${headLine}`,
 		statText,
-		"Everything staged at that moment is now committed; do not commit those changes again.",
+		`Everything staged at that moment is now ${verb}; do not commit those changes again.`,
 	]
 		.filter(Boolean)
 		.join("\n\n");
