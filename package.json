@@ -4,12 +4,19 @@
   "private": true,
   "description": "pi extension: /commit stages the tree, writes the message from the staged diff and the session transcript, and commits mid-run",
   "type": "module",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "scripts": {
     "test": "bun test"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-ai": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
   }
 }
