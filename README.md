@@ -9,11 +9,21 @@ Why not ask the agent: a fresh batch session has no relation to your working tra
 ```
 /commit                        # stage everything, commit
 /commit staged                 # commit only what you already staged
+/commit amend                  # rewrite the last commit instead of adding one
 /commit ~/other/repo           # commit a different repository
-/commit staged ~/other/repo    # both, any order
+/commit staged amend ~/other/repo   # flags and dir, any order
 ```
 
-At most one `staged` and one directory. A directory with spaces must be quoted (`/commit "/tmp/my repo"`); `~` expands to your home. Anything else is a usage error.
+At most one `staged`, one `amend`, and one directory. A directory with spaces must be quoted (`/commit "/tmp/my repo"`); `~` expands to your home. Anything else is a usage error.
+
+## Amend
+
+`/commit amend` runs `git commit --amend`. Two details follow from that:
+
+- **The message describes the whole amended commit, not the folded-in delta.** After an amend the new commit holds the entire index, so the diff the model sees is the index against `HEAD^` — a root commit diffs against the empty tree hash git reports. Writing the message from the incremental change would under-describe the commit.
+- **An empty index means message-only.** Nothing to stage plus `amend` rewrites just the message, leaving the tree alone.
+
+Nothing here blocks rewriting published history. If the commit was pushed, that is yours to know — the extension warns about nothing and force-pushes nothing.
 
 ## Config
 
@@ -34,7 +44,7 @@ A missing file means defaults. An unknown model id or thinking level refuses rat
 
 `<cwd>/.pi/commit-message-format.md` — **the message shape itself**. Whatever this file says is interpolated verbatim into the system prompt under `Commit message format (follow it exactly):`. Edit it and the next commit message follows the new shape; no code change needed.
 
-With no file, the extension falls back to the template it shipped with — the same three paragraphs, kept as `DEFAULT_MESSAGE_FORMAT`. A test fails when the repo's file and that default drift apart.
+With no file, the extension falls back to the template it shipped with — the same three paragraphs, kept as `DEFAULT_MESSAGE_FORMAT`. Edit either; nothing enforces that they stay identical.
 
 Honoured only when the project is trusted (`ctx.isProjectTrusted()`). Note pi's own semantics: a project with no trust-requiring resources (no `.pi/extensions`, no project `AGENTS.md`, …) counts as trusted, so the file applies out of the box; a project with executable project-local resources needs `/trust` or `-a` first. This workspace's file is `.pi/commit-message-format.md`.
 
@@ -61,7 +71,7 @@ After a successful commit the extension sends a steering message into the sessio
 
 - `git add -A` captures whatever is on disk at that moment. Firing `/commit` while the agent is mid-write can commit a half-written file — fire between tool calls. There is no private-index snapshot; that is the deliberate trade against pi-committer's approach.
 - The assistant message currently streaming is absent from the transcript (entries are appended on message end), so the newest intent may be missing.
-- No amend, no push, no multi-commit splitting, no conventional-commit type enforcement, no verbatim-message argument.
+- No push, no multi-commit splitting, no conventional-commit type enforcement, no verbatim-message argument.
 
 ## Tests
 
@@ -71,7 +81,7 @@ Pure logic — argument parsing, clipping, sanitising, config parsing, prompt as
 cd git-commit && bun test
 ```
 
-41 assertions, no pi or network needed. Anything that shells out to git still needs a scratch repo.
+46 assertions, no pi or network needed. Anything that shells out to git still needs a scratch repo.
 
 ## Install
 
