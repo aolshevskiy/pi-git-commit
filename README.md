@@ -73,12 +73,18 @@ cd git-commit && bun test
 
 41 assertions, no pi or network needed. Anything that shells out to git still needs a scratch repo.
 
-## Wiring
-
-Not wired yet. The planned entry point is `.pi/extensions/` or a `packages` entry in `settings.json`; until then, load it ad hoc:
+## Install
 
 ```bash
-pi -e /home/psyche/usr/lab/git-commit/index.ts
+pi install git:github.com/aolshevskiy/pi-git-commit
+```
+
+Loading depends on the `pi.extensions` entry in `package.json`: for a managed npm or git package, pi collects resources from conventional directories (`extensions/`, `skills/`, `prompts/`, `themes/`) or from the paths declared under `pi`. A bare `index.ts` at the package root is **not** discovered — that fallback belongs to local directory sources only. `pi update --extensions` after pushing changes.
+
+One-off, nothing installed:
+
+```bash
+pi -e git:github.com/aolshevskiy/pi-git-commit
 ```
 
 ## Status

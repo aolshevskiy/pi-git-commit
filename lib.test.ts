@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -241,13 +240,6 @@ describe("prompts", () => {
 		expect(prompt).toContain("The shape is a ceiling");
 	});
 
-	test("this repo's format file matches the built-in default", () => {
-		// The template lives in two places by design: the code fallback and the repo's file.
-		// This fails when one is edited without the other.
-		const path = join(import.meta.dir, "..", "..", ".pi", "commit-message-format.md");
-		if (!existsSync(path)) return;
-		expect(readFileSync(path, "utf8").trim()).toBe(DEFAULT_MESSAGE_FORMAT);
-	});
 });
 
 describe("buildReport", () => {
