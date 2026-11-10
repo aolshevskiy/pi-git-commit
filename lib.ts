@@ -5,7 +5,7 @@
  */
 
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -139,6 +139,23 @@ export function expandDir(cwd: string, dir: string): string {
 	if (dir === "~") return homedir();
 	if (dir.startsWith("~/")) return join(homedir(), dir.slice(2));
 	return resolve(cwd, dir);
+}
+
+/**
+ * Where one config file may live, nearest first: `relative` under `root` and then under each
+ * ancestor up to the filesystem root. Pure, so the walk is testable without a fixture tree, and
+ * per file rather than per directory — one file found does not decide where the other is read.
+ */
+export function configCandidates(root: string, relative: string): string[] {
+	const paths: string[] = [];
+	let dir = resolve(root);
+
+	for (;;) {
+		paths.push(join(dir, relative));
+		const parent = dirname(dir);
+		if (parent === dir) return paths;
+		dir = parent;
+	}
 }
 
 /** Split a unified diff into per-file chunks, keeping the `diff --git` header. */

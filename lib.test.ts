@@ -8,6 +8,7 @@ import {
 	clipDiff,
 	clipStat,
 	clipText,
+	configCandidates,
 	DEFAULT_MESSAGE_FORMAT,
 	diffBase,
 	expandDir,
@@ -215,6 +216,30 @@ describe("normalizeConfig", () => {
 		const { config, warning } = normalizeConfig("{oops");
 		expect(config).toEqual({ thinking: "low" });
 		expect(warning).toContain("invalid JSON");
+	});
+});
+
+describe("configCandidates", () => {
+	test("starts at the repository root and ends at the filesystem root", () => {
+		const paths = configCandidates("/work/repo", ".pi/git-commit.json");
+		expect(paths).toEqual(["/work/repo/.pi/git-commit.json", "/work/.pi/git-commit.json", "/.pi/git-commit.json"]);
+	});
+
+	test("nearest first, no duplicates", () => {
+		const paths = configCandidates("/a/b/c/d", ".pi/x.json");
+		expect(paths[0]).toBe("/a/b/c/d/.pi/x.json");
+		expect(paths.at(-1)).toBe("/.pi/x.json");
+		expect(new Set(paths).size).toBe(paths.length);
+	});
+
+	test("a trailing slash or a relative root normalises", () => {
+		expect(configCandidates("/work/repo/", ".pi/x.json")[0]).toBe("/work/repo/.pi/x.json");
+		expect(configCandidates("/work/repo/./sub/..", ".pi/x.json")[0]).toBe("/work/repo/.pi/x.json");
+	});
+
+	test("each file gets its own walk", () => {
+		expect(configCandidates("/r", ".pi/a.json")[0]).toBe(join("/r", ".pi/a.json"));
+		expect(configCandidates("/r", ".pi/b.md")[0]).toBe(join("/r", ".pi/b.md"));
 	});
 });
 

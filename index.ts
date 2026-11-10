@@ -11,7 +11,8 @@
  *           amended commit (diffed against its parent), and an empty index means message-only
  *   dir     repository to commit, default the session cwd
  *
- * Config, both under <cwd>/.pi/ (never the target repo's):
+ * Config, from the repository being committed (never the session's: `/commit <dir>` commits
+ * `<dir>`), each file searched `.pi/` there and then upward to the filesystem root:
  *   git-commit.json           { "model": "<inherit|provider/modelId>", "thinking": "low" }
  *   commit-message-format.md  the message shape, honoured only when the project is trusted
  *
@@ -29,6 +30,7 @@ import {
 	buildSystemPrompt,
 	type Config,
 	clipText,
+	configCandidates,
 	diffBase,
 	expandDir,
 	gitFailure,
@@ -40,28 +42,30 @@ import {
 	invalidMessage,
 } from "./lib.ts";
 
-function loadConfig(ctx: ExtensionCommandContext): Config {
-	const path = join(ctx.cwd, CONFIG_DIR_NAME, "git-commit.json");
-
-	let raw: string | undefined;
-	try {
-		raw = readFileSync(path, "utf8");
-	} catch {
-		raw = undefined;
+/** Nearest candidate first; the caller decides which file it wants. */
+function readFirst(candidates: string[]): { path: string; text: string } | undefined {
+	for (const path of candidates) {
+		try {
+			return { path, text: readFileSync(path, "utf8") };
+		} catch {
+			// absent, unreadable, or a directory — try the next ancestor
+		}
 	}
+	return undefined;
+}
 
-	const { config, warning } = normalizeConfig(raw);
-	if (warning) ctx.ui.notify(`${path}: ${warning}`, "warning");
+function loadConfig(ctx: ExtensionCommandContext, root: string): Config {
+	const found = readFirst(configCandidates(root, join(CONFIG_DIR_NAME, "git-commit.json")));
+
+	const { config, warning } = normalizeConfig(found?.text);
+	if (warning && found) ctx.ui.notify(`${found.path}: ${warning}`, "warning");
 	return config;
 }
 
-function loadMessageFormat(ctx: ExtensionCommandContext): string {
+function loadMessageFormat(ctx: ExtensionCommandContext, root: string): string {
 	if (!ctx.isProjectTrusted()) return "";
-	try {
-		return readFileSync(join(ctx.cwd, CONFIG_DIR_NAME, "commit-message-format.md"), "utf8").trim();
-	} catch {
-		return "";
-	}
+	const found = readFirst(configCandidates(root, join(CONFIG_DIR_NAME, "commit-message-format.md")));
+	return found?.text.trim() ?? "";
 }
 
 async function resolveRepoRoot(
@@ -205,9 +209,11 @@ async function runCommit(pi: ExtensionAPI, ctx: ExtensionCommandContext, rawArgs
 		return;
 	}
 
-	const config = loadConfig(ctx);
 	const root = await resolveRepoRoot(pi, ctx, parsed.dir);
 	if (!root) return;
+
+	// Config lives with the repository being committed, so it is only resolvable once `root` is.
+	const config = loadConfig(ctx, root);
 
 	const parent = await pi.exec("git", ["rev-parse", "--verify", "--quiet", "HEAD^"], { cwd: root, timeout: 15_000 });
 	const hasParent = parent.code === 0 && parent.stdout.trim().length > 0;
@@ -269,7 +275,7 @@ async function runCommit(pi: ExtensionAPI, ctx: ExtensionCommandContext, rawArgs
 	}
 
 	const prompt = buildPrompt(stat.stdout, diff.stdout, sessionTranscript(ctx));
-	const generated = await generateMessage(ctx, model, config, buildSystemPrompt(loadMessageFormat(ctx)), prompt);
+	const generated = await generateMessage(ctx, model, config, buildSystemPrompt(loadMessageFormat(ctx, root)), prompt);
 	if (!generated) return;
 
 	const message = sanitizeMessage(generated);

@@ -27,7 +27,7 @@ Nothing here blocks rewriting published history. If the commit was pushed, that 
 
 ## Config
 
-`<cwd>/.pi/git-commit.json` — read from the **session's project**, never from the repo being committed:
+`<repo>/.pi/git-commit.json` — read from the **repository being committed** (the `dir` argument, or the session's cwd), searched there and then upward through each ancestor's `.pi/` until the file is found:
 
 ```json
 { "model": "inherit", "thinking": "low" }
@@ -40,13 +40,17 @@ Nothing here blocks rewriting published history. If the commit was pushed, that 
 
 A missing file means defaults. An unknown model id or thinking level refuses rather than falling back silently — a message written by the wrong model is worse than no commit.
 
+The walk is per file: `git-commit.json` and the format file below are located independently, so a config at the repo root and a format two levels up both apply.
+
 ## Message format
 
-`<cwd>/.pi/commit-message-format.md` — **the message shape itself**. Whatever this file says is interpolated verbatim into the system prompt under `Commit message format (follow it exactly):`. Edit it and the next commit message follows the new shape; no code change needed.
+`<repo>/.pi/commit-message-format.md` — **the message shape itself**, found by the same upward walk (nearest wins). Whatever this file says is interpolated verbatim into the system prompt under `Commit message format (follow it exactly):`. Edit it and the next commit message follows the new shape; no code change needed.
 
 With no file, the extension falls back to the template it shipped with — the same three paragraphs, kept as `DEFAULT_MESSAGE_FORMAT`. Edit either; nothing enforces that they stay identical.
 
-Honoured only when the project is trusted (`ctx.isProjectTrusted()`). Note pi's own semantics: a project with no trust-requiring resources (no `.pi/extensions`, no project `AGENTS.md`, …) counts as trusted, so the file applies out of the box; a project with executable project-local resources needs `/trust` or `-a` first. This workspace's file is `.pi/commit-message-format.md`.
+Honoured only when the project is trusted (`ctx.isProjectTrusted()`, which reports on the session's project, not necessarily the committed one). Note pi's own semantics: a project with no trust-requiring resources (no `.pi/extensions`, no project `AGENTS.md`, …) counts as trusted, so the file applies out of the box; a project with executable project-local resources needs `/trust` or `-a` first. This workspace's file is `.pi/commit-message-format.md`.
+
+Because the search extends outside the session's project, a format file in another repository is a file whose text lands verbatim in the system prompt. Trust for that repository is not checked; pass `dir` only for repositories you would read the message shape from.
 
 ## What the message is built from
 
